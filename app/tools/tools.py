@@ -54,7 +54,7 @@ def _log_tool_result(tool_name: str, result: str) -> str:
 def fetch_stock_news(ticker: str) -> str:
     """Fetch latest 1 news article for a ticker via yfinance."""
     try:
-        stock = yf.Ticker(ticker.upper(), session=yf_session)
+        stock = yf.Ticker(ticker.upper())
         news = stock.news
         if not news: 
             return _log_tool_result("fetch_stock_news", f"No news found for {ticker}.")
@@ -77,7 +77,7 @@ def fetch_stock_news(ticker: str) -> str:
 def get_stock_price_info(ticker: str) -> str:
     """Get price, 50-day Moving Average, and basic trend signal."""
     try:
-        stock = yf.Ticker(ticker.upper(), session=yf_session)
+        stock = yf.Ticker(ticker.upper())
         hist = stock.history(period="3mo")
         if hist.empty: 
             # Fallback to raw request
@@ -136,17 +136,33 @@ def embed_and_store_news(ticker: str, news_text: str) -> str:
     except Exception as e:
         return _log_tool_result("embed_and_store_news", f"Error storing news: {str(e)}")
 
-@tool
-def get_trending_stocks() -> str:
-    """Market Scanner: Get top movers from a preset watchlist."""
-    watchlist = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "META", "AMZN"]
+import urllib.request
+import json
+
+def get_trending_stocks_data():
+    """Helper function to fetch structured trending data dynamically."""
+    watchlist = []
+    try:
+        req = urllib.request.Request(
+            'https://query1.finance.yahoo.com/v1/finance/trending/US?count=10', 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        res = urllib.request.urlopen(req).read()
+        data = json.loads(res)
+        quotes = data.get('finance', {}).get('result', [{}])[0].get('quotes', [])
+        # Filter out cryptos and indices if preferred, or keep them. Here we just take up to 10 symbols.
+        watchlist = [q['symbol'] for q in quotes if '^' not in q['symbol']][:8]
+    except Exception as e:
+        logger.error(f"Failed to fetch trending symbols: {e}")
+        watchlist = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "META", "AMZN"] # Fallback
+
     movers = []
     
     for s in watchlist:
         try:
             time.sleep(2) # Throttle to prevent rate limit
             # period="2d" is efficient for a quick delta
-            stock = yf.Ticker(s, session=yf_session)
+            stock = yf.Ticker(s)
             h = stock.history(period="2d")
             if len(h) < 2: continue
             
@@ -198,7 +214,7 @@ def get_platform_popular() -> str:
 def get_ticker_details(ticker: str) -> str:
     """Deep Dive: Comprehensive financial stats and company summary."""
     try:
-        stock = yf.Ticker(ticker.upper(), session=yf_session)
+        stock = yf.Ticker(ticker.upper())
         info = stock.info
         
         # Formatting large numbers for readability
