@@ -87,11 +87,45 @@ Allows users to ask specific questions about their portfolio or any stock ticker
    python main.py
    ```
 
-The system uses a stateful graph with MongoDB checkpointers to maintain thread history:
+## 🏗 Multi-Agent System Architecture
 
-```text
-Manager -> Intent Router -> Research (Sequential) -> Trend -> Synthesize -> END
+The system is built as a stateful agentic graph using **LangGraph**. It orchestrates multiple specialized "nodes" that act as independent agents to process a user's request.
+
+### 📊 Agent Workflow
+```mermaid
+graph TD
+    Start((START)) --> Manager[Manager Node]
+    Manager --> Intent[Intent Router]
+    Intent --> Research[Research Node]
+    Research --> Trend[Trend Node]
+    Trend --> Synthesize[Synthesis Node]
+    Synthesize --> End((END))
+
+    subgraph "Data Orchestration"
+    Manager
+    Intent
+    end
+
+    subgraph "Intelligence Gathering"
+    Research
+    Trend
+    end
+
+    subgraph "Response Generation"
+    Synthesize
+    end
 ```
+
+### 🤖 Node Breakdown
+
+- **Manager Node**: The entry point. It fetches the user's financial profile, risk tolerance, and current holdings from **MongoDB Atlas**. It "hydrates" the graph state with this personal context.
+- **Intent Router**: A decision-making layer that analyzes the user's natural language input. It determines whether the user is asking about their whole portfolio or specific tickers (even those not yet owned), allowing the system to focus its API calls and tokens.
+- **Research Node**: The "Deep Diver." For each identified ticker, it performs a sequential analysis:
+    - Fetches the latest news via `yfinance`.
+    - Cross-references news with **MongoDB Atlas Vector Search** for historical market intelligence.
+    - Uses an LLM to generate a concise summary of the stock's current sentiment.
+- **Trend Node**: The "Market Scanner." It pulls real-time technical indicators (50-day moving averages, current prices) and aggregates platform-wide trending data to provide a "Macro" perspective.
+- **Synthesis Node**: The "Advisor." It takes the outputs from all previous nodes and the user's specific question to generate a final, personalized response in professional Markdown.
 
 ### 🛡 Stability Features
 - **Rate Limit Resilience**: All `yfinance` calls are throttled with 3s intervals and use a randomized `User-Agent` session.
