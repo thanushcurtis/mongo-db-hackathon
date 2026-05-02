@@ -15,7 +15,7 @@ db = client["personal_portfolio"]
 def seed():
     users = [
         {
-            "user_id": "hardcoded_user_1",
+            "user_id": "thanushcurtis",
             "name": "Thanush Curtis",
             "risk_tolerance": "moderate",
             "portfolio": [

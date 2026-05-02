@@ -16,6 +16,7 @@ class PortfolioState(TypedDict):
     user_name: str
     risk_tolerance: str
     portfolio: list[dict]        # [{ticker, shares, buy_price}, ...]
+    target_portfolio: list[dict] # Filtered portfolio based on intent
     
     # Results
     research_results: dict       # {ticker: analysis}

@@ -1,47 +1,60 @@
+import time
+import logging
+import requests
 import yfinance as yf
 from datetime import datetime, timezone
 from langchain_core.tools import tool
 from langchain_core.documents import Document
 from app.database import vector_store, get_all_user_holdings
 
+logger = logging.getLogger(__name__)
+
 ## --- Helper Functions ---
+# Setup a custom session to help avoid rate limits
+yf_session = requests.Session()
+yf_session.headers.update({"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+
 def _get_safe_now():
     """Returns timezone-aware UTC datetime."""
     return datetime.now(timezone.utc)
+
+def _log_tool_result(tool_name: str, result: str) -> str:
+    logger.info(f"[{tool_name}] Result: {result}")
+    return result
 
 ## --- Tool Definitions ---
 
 @tool
 def fetch_stock_news(ticker: str) -> str:
-    """Fetch latest 10 news articles for a ticker via yfinance."""
+    """Fetch latest 1 news article for a ticker via yfinance."""
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = yf.Ticker(ticker.upper(), session=yf_session)
         news = stock.news
         if not news: 
-            return f"No news found for {ticker}."
+            return _log_tool_result("fetch_stock_news", f"No news found for {ticker}.")
         
         articles = []
-        for item in news[:10]:
-            title = item.get("title", "No title")
-            publisher = item.get("publisher", "Unknown")
-            # Handle the timestamp conversion safely
-            ts = item.get("providerPublishTime")
-            time_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts else "N/A"
-            link = item.get('link', '')
+        for item in news[:2]:
+            content = item.get("content", {})
+            title = content.get("title", "No title")
+            publisher = content.get("provider", {}).get("displayName", "Unknown")
+            time_str = content.get("pubDate", "N/A")
+            link = content.get("canonicalUrl", {}).get("url", "")
             articles.append(f"• [{publisher}] {title} ({time_str})\n  {link}")
         
-        return f"📰 Latest News for {ticker.upper()}:\n\n" + "\n\n".join(articles)
+        res = f"📰 Latest News for {ticker.upper()}:\n\n" + "\n\n".join(articles)
+        return _log_tool_result("fetch_stock_news", res)
     except Exception as e:
-        return f"Error fetching news for {ticker}: {str(e)}"
+        return _log_tool_result("fetch_stock_news", f"Error fetching news for {ticker}: {str(e)}")
 
 @tool
 def get_stock_price_info(ticker: str) -> str:
     """Get price, 50-day Moving Average, and basic trend signal."""
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = yf.Ticker(ticker.upper(), session=yf_session)
         hist = stock.history(period="3mo")
         if hist.empty: 
-            return f"No price data available for {ticker}."
+            return _log_tool_result("get_stock_price_info", f"No price data available for {ticker}.")
 
         cp = hist["Close"].iloc[-1]
         ma50 = hist["Close"].rolling(window=50).mean().iloc[-1]
@@ -54,9 +67,10 @@ def get_stock_price_info(ticker: str) -> str:
         else:
             trend = "🟡 NEUTRAL"
         
-        return f"📊 {ticker.upper()} Analysis: Price ${cp:.2f}, 50-Day MA ${ma50:.2f}. Trend: {trend}"
+        res = f"📊 {ticker.upper()} Analysis: Price ${cp:.2f}, 50-Day MA ${ma50:.2f}. Trend: {trend}"
+        return _log_tool_result("get_stock_price_info", res)
     except Exception as e:
-        return f"Error fetching price info: {str(e)}"
+        return _log_tool_result("get_stock_price_info", f"Error fetching price info: {str(e)}")
 
 @tool
 def search_market_cache(query: str, k: int = 5) -> str:
@@ -65,7 +79,7 @@ def search_market_cache(query: str, k: int = 5) -> str:
         # Ensure your vector_store is correctly initialized in app.database
         results = vector_store.similarity_search(query, k=k)
         if not results: 
-            return "No cached data found matching that query."
+            return _log_tool_result("search_market_cache", "No cached data found matching that query.")
         
         output = []
         for i, doc in enumerate(results, 1):
@@ -73,9 +87,10 @@ def search_market_cache(query: str, k: int = 5) -> str:
             snippet = doc.page_content[:200].replace("\n", " ")
             output.append(f"{i}. [{tref}] {snippet}...")
             
-        return "🔍 Cached Market Intelligence:\n\n" + "\n\n".join(output)
+        res = "🔍 Cached Market Intelligence:\n\n" + "\n\n".join(output)
+        return _log_tool_result("search_market_cache", res)
     except Exception as e:
-        return f"Error searching vector cache: {str(e)}"
+        return _log_tool_result("search_market_cache", f"Error searching vector cache: {str(e)}")
 
 @tool
 def embed_and_store_news(ticker: str, news_text: str) -> str:
@@ -90,9 +105,9 @@ def embed_and_store_news(ticker: str, news_text: str) -> str:
             }
         )
         vector_store.add_documents([doc])
-        return f"✅ Stored news for {ticker.upper()} in market cache."
+        return _log_tool_result("embed_and_store_news", f"✅ Stored news for {ticker.upper()} in market cache.")
     except Exception as e:
-        return f"Error storing news: {str(e)}"
+        return _log_tool_result("embed_and_store_news", f"Error storing news: {str(e)}")
 
 import urllib.request
 import json
@@ -118,7 +133,10 @@ def get_trending_stocks_data():
     
     for s in watchlist:
         try:
-            h = yf.Ticker(s).history(period="2d")
+            time.sleep(2) # Throttle to prevent rate limit
+            # period="2d" is efficient for a quick delta
+            stock = yf.Ticker(s, session=yf_session)
+            h = stock.history(period="2d")
             if len(h) < 2: continue
             
             prev_close = h["Close"].iloc[-2]
@@ -137,14 +155,17 @@ def get_trending_stocks() -> str:
     movers = get_trending_stocks_data()
     
     if not movers:
-        return "Unable to fetch trending data at this time."
+        return _log_tool_result("get_trending_stocks", "Unable to fetch trending data at this time.")
+
+    # Sort by absolute change percentage
+    movers.sort(key=lambda x: abs(x["change"]), reverse=True)
     
     lines = [f"🔥 Hot Stocks (Daily Change):"]
     for m in movers:
         emoji = "📈" if m['change'] > 0 else "📉"
         lines.append(f"  {emoji} {m['ticker']}: ${m['price']:.2f} ({m['change']:+.2f}%)")
         
-    return "\n".join(lines)
+    return _log_tool_result("get_trending_stocks", "\n".join(lines))
 
 @tool
 def get_platform_popular() -> str:
@@ -152,21 +173,21 @@ def get_platform_popular() -> str:
     try:
         holdings = get_all_user_holdings() # Expecting a list of dicts: [{'_id': 'AAPL', 'holder_count': 50}]
         if not holdings: 
-            return "No platform usage data available yet."
+            return _log_tool_result("get_platform_popular", "No platform usage data available yet.")
             
         lines = ["👥 Popular on Platform:"]
         for h in holdings[:5]:
             lines.append(f"  • {h.get('_id', 'Unknown')}: {h.get('holder_count', 0)} holders")
             
-        return "\n".join(lines)
+        return _log_tool_result("get_platform_popular", "\n".join(lines))
     except Exception as e:
-        return f"Error fetching social signals: {str(e)}"
+        return _log_tool_result("get_platform_popular", f"Error fetching social signals: {str(e)}")
 
 @tool
 def get_ticker_details(ticker: str) -> str:
     """Deep Dive: Comprehensive financial stats and company summary."""
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = yf.Ticker(ticker.upper(), session=yf_session)
         info = stock.info
         
         # Formatting large numbers for readability
@@ -175,10 +196,11 @@ def get_ticker_details(ticker: str) -> str:
         
         summary = info.get('longBusinessSummary', 'No summary available.')
         
-        return (f"🏢 {ticker.upper()} Details:\n"
+        res = (f"🏢 {ticker.upper()} Details:\n"
                 f"  Sector: {info.get('sector', 'N/A')}\n"
                 f"  Market Cap: {formatted_cap}\n"
                 f"  P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
                 f"  Summary: {summary[:350]}...")
+        return _log_tool_result("get_ticker_details", res)
     except Exception as e:
-        return f"Error fetching details for {ticker}: {str(e)}"
+        return _log_tool_result("get_ticker_details", f"Error fetching details for {ticker}: {str(e)}")
