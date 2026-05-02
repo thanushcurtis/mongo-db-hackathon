@@ -1,10 +1,10 @@
 # ============================================================
-# Personal Portfolio — Backend Dependencies (pinned versions)
+# Personal Portfolio — Backend Dependencies
 # ============================================================
 
 # --- Web Framework ---
-fastapi==0.115.12
-uvicorn[standard]==0.34.3
+fastapi
+uvicorn[standard]
 
 # --- LLM & Agent Orchestration ---
 langchain==0.3.25
@@ -14,15 +14,15 @@ langgraph==0.3.34
 langgraph-checkpoint-mongodb
 
 # --- Embeddings (Voyage AI) ---
-langchain-voyageai==0.3.1
+langchain-voyageai  # Note: v0.1.3 declares langchain-core<0.4, but works fine with 1.3.x at runtime
 
 # --- MongoDB ---
 langchain-mongodb
 pymongo==4.12.1
 
 # --- Market Data ---
-yfinance==0.2.55
+yfinance
 
 # --- Utilities ---
-python-dotenv==1.1.0
-pydantic==2.11.3
+python-dotenv
+pydantic

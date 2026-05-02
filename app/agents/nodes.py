@@ -90,17 +90,29 @@ def intent_node(state: PortfolioState) -> dict:
 def _research_single_stock(t: str, risk_tolerance: str, chat_message: str) -> tuple[str, str]:
     """Helper to process a single stock sequentially."""
     logger.info(f"Research Node: Starting research for {t}...")
-    time.sleep(3)  # Throttle yfinance requests immediately to avoid Too Many Requests
-    news = fetch_stock_news.invoke({"ticker": t})
-    embed_and_store_news.invoke({"ticker": t, "news_text": news})
+    
+    # Check cache first
     intel = search_market_cache.invoke({"query": f"{t} outlook", "k": 2})
+    news = "Using cached intelligence."
+    
+    if "No cached data found" in intel:
+        logger.info(f"Research Node: No cache found for {t}. Fetching from internet...")
+        time.sleep(3)  # Throttle yfinance requests immediately to avoid Too Many Requests
+        news = fetch_stock_news.invoke({"ticker": t})
+        embed_and_store_news.invoke({"ticker": t, "news_text": news})
+        # Re-fetch intel now that it is stored
+        intel = search_market_cache.invoke({"query": f"{t} outlook", "k": 2})
+    else:
+        logger.info(f"Research Node: Cache hit for {t}. Skipping internet fetch.")
+        
+    time.sleep(2)
     details = get_ticker_details.invoke({"ticker": t})
     
     logger.info(f"Research Node: Analyzing {t} using LLM...")
     
     time.sleep(2) # Throttle to avoid rate limits
     if chat_message:
-        prompt = f"Extract relevant facts about {t} from this data to help answer: '{chat_message}'. Keep it very brief.\nNews: {news}\nDetails: {details}"
+        prompt = f"Extract relevant facts about {t} from this data to help answer: '{chat_message}'. Keep it very brief.\nNews: {news}\nIntel: {intel}\nDetails: {details}"
         sys_msg = "You are a concise financial data extractor."
     else:
         prompt = f"Analyze {t} for a {risk_tolerance} investor.\nNews: {news}\nIntel: {intel}\nDetails: {details}"
