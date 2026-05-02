@@ -56,26 +56,34 @@ def intent_node(state: PortfolioState) -> dict:
     
     tickers = [h["ticker"] for h in portfolio]
     prompt = f"""
-    The user's full portfolio contains these tickers: {tickers}.
+    The user's portfolio contains: {tickers}.
     The user asked: "{chat_message}"
     
-    Identify which tickers from the portfolio the user is asking about. 
-    If they are asking about the entire portfolio or a general question, return ALL tickers from the portfolio.
-    If they are asking about specific stocks, return ONLY those tickers.
+    Identify which stock tickers the user is asking about. 
+    1. If they ask about stocks in their portfolio, return those.
+    2. If they ask about stocks NOT in their portfolio (e.g. Google, Tesla, etc.), return the correct ticker (e.g. GOOGL, TSLA).
+    3. If they ask a general portfolio question, return all portfolio tickers.
     
-    Return the output strictly as a comma-separated list of tickers. No other text. Example: AAPL, MSFT
+    Return ONLY a comma-separated list of tickers. No other text. Example: AAPL, GOOGL, TSLA
     """
     resp = llm.invoke([SystemMessage(content="You are a routing assistant. Return only a comma-separated list of tickers."), HumanMessage(content=prompt)])
     
-    response_text = resp.content.strip().upper()
-    target_tickers = [t.strip() for t in response_text.split(",") if t.strip() in tickers]
+    response_text = resp.content.strip().upper().replace(" ", "")
+    target_tickers = [t.strip() for t in response_text.split(",") if t.strip()]
     
     if not target_tickers:
         logger.info("Intent Node: Could not identify specific tickers, defaulting to full portfolio.")
         target_portfolio = portfolio
     else:
         logger.info(f"Intent Node: Identified target tickers: {target_tickers}")
-        target_portfolio = [h for h in portfolio if h["ticker"] in target_tickers]
+        target_portfolio = []
+        for t in target_tickers:
+            match = next((h for h in portfolio if h["ticker"] == t), None)
+            if match:
+                target_portfolio.append(match)
+            else:
+                # Add as new ticker with 0 shares for research purposes
+                target_portfolio.append({"ticker": t, "shares": 0, "buy_price": 0})
         
     return {"target_portfolio": target_portfolio}
 
