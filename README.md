@@ -6,9 +6,10 @@ An agentic AI system built with **LangGraph**, **MongoDB Atlas**, and **Cohere**
 
 This backend system leverages a multi-node agent graph to:
 1. **Manager Node**: Retrieve and hydrate user profiles and portfolio data from MongoDB.
-2. **Research Node**: Perform concurrent RAG-based research on every stock in a user's portfolio using yfinance and MongoDB Atlas Vector Search (Voyage AI embeddings).
-3. **Trend Node**: Aggregate technical signals and platform-wide trending stocks.
-4. **Synthesis Node**: Generate a comprehensive, personalized Markdown report using Cohere's Command-R+.
+2. **Intent Router Node**: Analyze user queries to filter relevant stocks or identify new tickers (like Google/GOOGL) for research.
+3. **Research Node**: Perform sequential RAG-based research on identified stocks using `yfinance` and MongoDB Atlas Vector Search (Voyage AI embeddings). Includes aggressive throttling to bypass rate limits.
+4. **Trend Node**: Aggregate technical signals and platform-wide trending stocks.
+5. **Synthesis Node**: Generate concise answers or full personalized Markdown reports using Cohere's Command-R+.
 
 ## 🛠 Tech Stack
 
@@ -28,8 +29,10 @@ The backend runs by default on `http://localhost:8000`.
 
 Runs the full analysis graph for a specific user.
 
-- **URL Params:** `user_id` (e.g., `hardcoded_user_1`)
-- **Response:**
+Runs the full analysis graph for a specific user.
+
+- **URL Params**: `user_id` (e.g., `thanushcurtis`)
+- **Response**:
   ```json
   {
     "report": "# Personalized Financial Report for Thanush..."
@@ -41,17 +44,19 @@ Runs the full analysis graph for a specific user.
 
 Allows users to ask specific questions about their portfolio.
 
-- **Request Body:**
+Allows users to ask specific questions about their portfolio or any stock ticker.
+
+- **Request Body**:
   ```json
   {
-    "user_id": "hardcoded_user_1",
-    "message": "Should I be worried about my Apple holdings?"
+    "user_id": "thanushcurtis",
+    "message": "What is Google's stock price today?"
   }
   ```
-- **Response:**
+- **Response**:
   ```json
   {
-    "report": "Based on recent news and trends for AAPL..."
+    "report": "Google (GOOGL) is currently trading at $172.50..."
   }
   ```
 
@@ -82,13 +87,16 @@ Allows users to ask specific questions about their portfolio.
    python main.py
    ```
 
-## 🏗 Graph Architecture
-
 The system uses a stateful graph with MongoDB checkpointers to maintain thread history:
 
 ```text
 Manager -> Intent Router -> Research (Sequential) -> Trend -> Synthesize -> END
 ```
+
+### 🛡 Stability Features
+- **Rate Limit Resilience**: All `yfinance` calls are throttled with 3s intervals and use a randomized `User-Agent` session.
+- **Price Fallback**: If the `yfinance` library is blocked, the system automatically falls back to raw HTTP requests to the Yahoo Chart API.
+- **Sequential Research**: Concurrency is disabled (`max_workers=1`) to ensure IP reputation is maintained during heavy analysis.
 
 Each step updates a shared `PortfolioState` which is persisted across turns in MongoDB.
 
