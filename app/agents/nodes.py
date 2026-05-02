@@ -56,30 +56,38 @@ def intent_node(state: PortfolioState) -> dict:
     
     tickers = [h["ticker"] for h in portfolio]
     prompt = f"""
-    The user's full portfolio contains these tickers: {tickers}.
+    The user's portfolio contains: {tickers}.
     The user asked: "{chat_message}"
     
-    Identify which tickers from the portfolio the user is asking about. 
-    If they are asking about the entire portfolio or a general question, return ALL tickers from the portfolio.
-    If they are asking about specific stocks, return ONLY those tickers.
+    Identify which stock tickers the user is asking about. 
+    1. If they ask about stocks in their portfolio, return those.
+    2. If they ask about stocks NOT in their portfolio (e.g. Google, Tesla, etc.), return the correct ticker (e.g. GOOGL, TSLA).
+    3. If they ask a general portfolio question, return all portfolio tickers.
     
-    Return the output strictly as a comma-separated list of tickers. No other text. Example: AAPL, MSFT
+    Return ONLY a comma-separated list of tickers. No other text. Example: AAPL, GOOGL, TSLA
     """
     resp = llm.invoke([SystemMessage(content="You are a routing assistant. Return only a comma-separated list of tickers."), HumanMessage(content=prompt)])
     
-    response_text = resp.content.strip().upper()
-    target_tickers = [t.strip() for t in response_text.split(",") if t.strip() in tickers]
+    response_text = resp.content.strip().upper().replace(" ", "")
+    target_tickers = [t.strip() for t in response_text.split(",") if t.strip()]
     
     if not target_tickers:
         logger.info("Intent Node: Could not identify specific tickers, defaulting to full portfolio.")
         target_portfolio = portfolio
     else:
         logger.info(f"Intent Node: Identified target tickers: {target_tickers}")
-        target_portfolio = [h for h in portfolio if h["ticker"] in target_tickers]
+        target_portfolio = []
+        for t in target_tickers:
+            match = next((h for h in portfolio if h["ticker"] == t), None)
+            if match:
+                target_portfolio.append(match)
+            else:
+                # Add as new ticker with 0 shares for research purposes
+                target_portfolio.append({"ticker": t, "shares": 0, "buy_price": 0})
         
     return {"target_portfolio": target_portfolio}
 
-def _research_single_stock(t: str, risk_tolerance: str) -> tuple[str, str]:
+def _research_single_stock(t: str, risk_tolerance: str, chat_message: str) -> tuple[str, str]:
     """Helper to process a single stock sequentially."""
     logger.info(f"Research Node: Starting research for {t}...")
     time.sleep(3)  # Throttle yfinance requests immediately to avoid Too Many Requests
@@ -91,8 +99,14 @@ def _research_single_stock(t: str, risk_tolerance: str) -> tuple[str, str]:
     logger.info(f"Research Node: Analyzing {t} using LLM...")
     
     time.sleep(2) # Throttle to avoid rate limits
-    prompt = f"Analyze {t} for a {risk_tolerance} investor.\nNews: {news}\nIntel: {intel}\nDetails: {details}"
-    resp = llm.invoke([SystemMessage(content="You are a financial analyst."), HumanMessage(content=prompt)])
+    if chat_message:
+        prompt = f"Extract relevant facts about {t} from this data to help answer: '{chat_message}'. Keep it very brief.\nNews: {news}\nDetails: {details}"
+        sys_msg = "You are a concise financial data extractor."
+    else:
+        prompt = f"Analyze {t} for a {risk_tolerance} investor.\nNews: {news}\nIntel: {intel}\nDetails: {details}"
+        sys_msg = "You are a financial analyst."
+        
+    resp = llm.invoke([SystemMessage(content=sys_msg), HumanMessage(content=prompt)])
     return t, resp.content
 
 def research_node(state: PortfolioState) -> dict:
@@ -100,10 +114,11 @@ def research_node(state: PortfolioState) -> dict:
     results = {}
     portfolio = state.get("target_portfolio", state.get("portfolio", []))
     risk_tolerance = state.get("risk_tolerance", "moderate")
+    chat_message = state.get("chat_message", "").strip()
     
     logger.info(f"Research Node: Processing portfolio of {len(portfolio)} stocks sequentially to prevent rate limits.")
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        futures = [executor.submit(_research_single_stock, h["ticker"], risk_tolerance) for h in portfolio]
+        futures = [executor.submit(_research_single_stock, h["ticker"], risk_tolerance, chat_message) for h in portfolio]
         for future in concurrent.futures.as_completed(futures):
             try:
                 t, result = future.result()
@@ -126,16 +141,25 @@ def trend_node(state: PortfolioState) -> dict:
     return {"trend_results": trends, "market_trends": market}
 
 def synthesize_node(state: PortfolioState) -> dict:
-    """Creates the final personalized Markdown report."""
+    """Creates the final personalized Markdown report or answers specific questions."""
     logger.info("Synthesize Node: Generating final report...")
+    chat_message = state.get('chat_message', '').strip()
+    
+    if chat_message:
+        system_content = "You are a senior portfolio manager. Directly and concisely answer the user's specific question using the provided data. Do not generate a full portfolio report unless explicitly asked."
+        instruction = "Directly answer the user's question based on the provided data."
+    else:
+        system_content = "You are a senior portfolio manager. Use professional Markdown."
+        instruction = f"Create a detailed Markdown report for {state['user_name']} ({state['risk_tolerance']} profile)."
+        
     prompt = f"""
-    Create a detailed Markdown report for {state['user_name']} ({state['risk_tolerance']} profile).
+    {instruction}
     Portfolio: {state['portfolio']}
     Research: {state['research_results']}
     Trends: {state['trend_results']}
     Market: {state['market_trends']}
-    User Question: {state.get('chat_message', 'N/A')}
+    User Question: {chat_message if chat_message else 'N/A'}
     """
-    resp = llm.invoke([SystemMessage(content="You are a senior portfolio manager. Use professional Markdown."), HumanMessage(content=prompt)])
+    resp = llm.invoke([SystemMessage(content=system_content), HumanMessage(content=prompt)])
     logger.info("Synthesize Node: Final report generated successfully.")
     return {"final_report": resp.content}

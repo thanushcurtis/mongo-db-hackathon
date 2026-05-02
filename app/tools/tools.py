@@ -10,9 +10,35 @@ from app.database import vector_store, get_all_user_holdings
 logger = logging.getLogger(__name__)
 
 ## --- Helper Functions ---
+import random
+
 # Setup a custom session to help avoid rate limits
 yf_session = requests.Session()
-yf_session.headers.update({"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+]
+yf_session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
+
+def _get_stock_price_raw(ticker: str) -> dict:
+    """Fallback: Direct HTTP request to Yahoo Finance API to bypass library-level blocks."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}?interval=1d&range=5d"
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            meta = data['chart']['result'][0]['meta']
+            return {
+                "price": meta['regularMarketPrice'],
+                "prev_close": meta['previousClose'],
+                "currency": meta['currency']
+            }
+    except Exception as e:
+        logger.error(f"Raw price fetch failed for {ticker}: {e}")
+    return {}
 
 def _get_safe_now():
     """Returns timezone-aware UTC datetime."""
@@ -54,23 +80,24 @@ def get_stock_price_info(ticker: str) -> str:
         stock = yf.Ticker(ticker.upper(), session=yf_session)
         hist = stock.history(period="3mo")
         if hist.empty: 
+            # Fallback to raw request
+            raw = _get_stock_price_raw(ticker)
+            if raw:
+                price = raw["price"]
+                return _log_tool_result("get_stock_price_info", f"💰 Current Price: {raw['currency']} {price:.2f} (via fallback)")
             return _log_tool_result("get_stock_price_info", f"No price data available for {ticker}.")
-
-        cp = hist["Close"].iloc[-1]
-        ma50 = hist["Close"].rolling(window=50).mean().iloc[-1]
         
-        # Trend logic with a 2% buffer for neutrality
-        if cp > ma50 * 1.02:
-            trend = "🟢 BULLISH"
-        elif cp < ma50 * 0.98:
-            trend = "🔴 BEARISH"
-        else:
-            trend = "🟡 NEUTRAL"
+        current_price = hist['Close'].iloc[-1]
+        ma50 = hist['Close'].rolling(window=50).mean().iloc[-1]
         
-        res = f"📊 {ticker.upper()} Analysis: Price ${cp:.2f}, 50-Day MA ${ma50:.2f}. Trend: {trend}"
-        return _log_tool_result("get_stock_price_info", res)
+        signal = "BULLISH" if current_price > ma50 else "BEARISH"
+        return _log_tool_result("get_stock_price_info", f"💰 Current Price: ${current_price:.2f} | 📈 50-Day MA: ${ma50:.2f} | 🚦 Signal: {signal}")
     except Exception as e:
-        return _log_tool_result("get_stock_price_info", f"Error fetching price info: {str(e)}")
+        if "Too Many Requests" in str(e):
+            raw = _get_stock_price_raw(ticker)
+            if raw:
+                return _log_tool_result("get_stock_price_info", f"💰 Current Price: {raw['currency']} {raw['price']:.2f} (via fallback)")
+        return _log_tool_result("get_stock_price_info", f"Error fetching price info: {e}")
 
 @tool
 def search_market_cache(query: str, k: int = 5) -> str:
@@ -175,16 +202,20 @@ def get_ticker_details(ticker: str) -> str:
         info = stock.info
         
         # Formatting large numbers for readability
-        m_cap = info.get('marketCap', 0)
-        formatted_cap = f"${m_cap/1e12:.2f}T" if m_cap > 1e12 else f"${m_cap/1e9:.2f}B"
+        mkt_cap = info.get('marketCap', 0)
+        mkt_cap_str = f"${mkt_cap/1e12:.2f}T" if mkt_cap > 1e12 else f"${mkt_cap/1e9:.2f}B"
         
-        summary = info.get('longBusinessSummary', 'No summary available.')
-        
-        res = (f"🏢 {ticker.upper()} Details:\n"
-                f"  Sector: {info.get('sector', 'N/A')}\n"
-                f"  Market Cap: {formatted_cap}\n"
-                f"  P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
-                f"  Summary: {summary[:350]}...")
-        return _log_tool_result("get_ticker_details", res)
+        details = (
+            f"🏢 Company: {info.get('longName', ticker)}\n"
+            f"Sector: {info.get('sector', 'N/A')} | Industry: {info.get('industry', 'N/A')}\n"
+            f"Market Cap: {mkt_cap_str} | P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
+            f"Price-to-Book: {info.get('priceToBook', 'N/A')} | Dividend Yield: {info.get('dividendYield', 0)*100:.2f}%\n"
+            f"Summary: {info.get('longBusinessSummary', 'No summary available.')[:500]}..."
+        )
+        return _log_tool_result("get_ticker_details", details)
     except Exception as e:
+        if "Too Many Requests" in str(e):
+            raw = _get_stock_price_raw(ticker)
+            if raw:
+                return _log_tool_result("get_ticker_details", f"Company info limited. 💰 Current Price: {raw['currency']} {raw['price']:.2f} (via fallback)")
         return _log_tool_result("get_ticker_details", f"Error fetching details for {ticker}: {str(e)}")
