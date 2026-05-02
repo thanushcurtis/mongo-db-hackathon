@@ -12,12 +12,12 @@ from app.agents.graph import graph
 load_dotenv()
 
 async def run_test():
-    print("🚀 Starting Test Run for 'hardcoded_user_1'...")
+    print("🚀 Starting Test Run for 'thanush'...")
     
     config = {"configurable": {"thread_id": "test_thread_001"}}
     initial_state = {
-        "user_id": "hardcoded_user_1",
-        "chat_message": "Should I be worried about my Apple holdings?"
+        "user_id": "thanushcurtis",
+        "chat_message": "How does my Portfolio looks now?"
     }
     
     try:
