@@ -17,7 +17,7 @@ async def run_test():
     config = {"configurable": {"thread_id": "test_thread_001"}}
     initial_state = {
         "user_id": "thanushcurtis",
-        "chat_message": "How does my Portfolio looks now?"
+        "chat_message": "How does my AAPL Holdings looks now?"
     }
     
     try:

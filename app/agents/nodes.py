@@ -25,6 +25,7 @@ llm = ChatCohere(
     model="command-r-plus-08-2024",
     temperature=0.3,
     max_tokens=4000,
+    timeout=120,
     max_retries=5,
     cohere_api_key=os.environ.get("COHERE_API_KEY"),
 )
@@ -42,9 +43,46 @@ def manager_node(state: PortfolioState) -> dict:
         "portfolio": profile.get("portfolio", []),
     }
 
+def intent_node(state: PortfolioState) -> dict:
+    """Filters the portfolio based on user's chat message."""
+    chat_message = state.get("chat_message", "").strip()
+    portfolio = state.get("portfolio", [])
+    
+    if not chat_message:
+        logger.info("Intent Node: No chat message, targeting full portfolio.")
+        return {"target_portfolio": portfolio}
+        
+    logger.info(f"Intent Node: Analyzing chat message to filter portfolio: '{chat_message}'")
+    
+    tickers = [h["ticker"] for h in portfolio]
+    prompt = f"""
+    The user's full portfolio contains these tickers: {tickers}.
+    The user asked: "{chat_message}"
+    
+    Identify which tickers from the portfolio the user is asking about. 
+    If they are asking about the entire portfolio or a general question, return ALL tickers from the portfolio.
+    If they are asking about specific stocks, return ONLY those tickers.
+    
+    Return the output strictly as a comma-separated list of tickers. No other text. Example: AAPL, MSFT
+    """
+    resp = llm.invoke([SystemMessage(content="You are a routing assistant. Return only a comma-separated list of tickers."), HumanMessage(content=prompt)])
+    
+    response_text = resp.content.strip().upper()
+    target_tickers = [t.strip() for t in response_text.split(",") if t.strip() in tickers]
+    
+    if not target_tickers:
+        logger.info("Intent Node: Could not identify specific tickers, defaulting to full portfolio.")
+        target_portfolio = portfolio
+    else:
+        logger.info(f"Intent Node: Identified target tickers: {target_tickers}")
+        target_portfolio = [h for h in portfolio if h["ticker"] in target_tickers]
+        
+    return {"target_portfolio": target_portfolio}
+
 def _research_single_stock(t: str, risk_tolerance: str) -> tuple[str, str]:
-    """Helper to process a single stock concurrently."""
+    """Helper to process a single stock sequentially."""
     logger.info(f"Research Node: Starting research for {t}...")
+    time.sleep(3)  # Throttle yfinance requests immediately to avoid Too Many Requests
     news = fetch_stock_news.invoke({"ticker": t})
     embed_and_store_news.invoke({"ticker": t, "news_text": news})
     intel = search_market_cache.invoke({"query": f"{t} outlook", "k": 2})
@@ -60,11 +98,11 @@ def _research_single_stock(t: str, risk_tolerance: str) -> tuple[str, str]:
 def research_node(state: PortfolioState) -> dict:
     """Performs RAG-based research for each ticker in the portfolio concurrently."""
     results = {}
-    portfolio = state.get("portfolio", [])
+    portfolio = state.get("target_portfolio", state.get("portfolio", []))
     risk_tolerance = state.get("risk_tolerance", "moderate")
     
-    logger.info(f"Research Node: Processing portfolio of {len(portfolio)} stocks.")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    logger.info(f"Research Node: Processing portfolio of {len(portfolio)} stocks sequentially to prevent rate limits.")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(_research_single_stock, h["ticker"], risk_tolerance) for h in portfolio]
         for future in concurrent.futures.as_completed(futures):
             try:
@@ -79,7 +117,10 @@ def research_node(state: PortfolioState) -> dict:
 def trend_node(state: PortfolioState) -> dict:
     """Aggregates technical trends and platform-wide social signals."""
     logger.info("Trend Node: Gathering technical and market trends...")
-    trends = {h["ticker"]: get_stock_price_info.invoke({"ticker": h["ticker"]}) for h in state.get("portfolio", [])}
+    trends = {}
+    for h in state.get("target_portfolio", state.get("portfolio", [])):
+        time.sleep(3)
+        trends[h["ticker"]] = get_stock_price_info.invoke({"ticker": h["ticker"]})
     market = f"{get_trending_stocks.invoke({})}\n\n{get_platform_popular.invoke({})}"
     logger.info("Trend Node: Trend gathering complete.")
     return {"trend_results": trends, "market_trends": market}
