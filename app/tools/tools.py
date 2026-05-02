@@ -30,11 +30,12 @@ def _get_stock_price_raw(ticker: str) -> dict:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            meta = data['chart']['result'][0]['meta']
+            result = data.get('chart', {}).get('result', [{}])[0]
+            meta = result.get('meta', {})
             return {
-                "price": meta['regularMarketPrice'],
-                "prev_close": meta['previousClose'],
-                "currency": meta['currency']
+                "price": meta.get('regularMarketPrice', 0),
+                "prev_close": meta.get('previousClose', 0),
+                "currency": meta.get('currency', 'USD')
             }
     except Exception as e:
         logger.error(f"Raw price fetch failed for {ticker}: {e}")

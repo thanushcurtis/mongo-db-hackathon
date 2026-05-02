@@ -87,7 +87,33 @@ Allows users to ask specific questions about their portfolio.
 The system uses a stateful graph with MongoDB checkpointers to maintain thread history:
 
 ```text
-Manager -> Research (Concurrent) -> Trend -> Synthesize -> END
+Manager -> Intent Router -> Research (Sequential) -> Trend -> Synthesize -> END
 ```
 
 Each step updates a shared `PortfolioState` which is persisted across turns in MongoDB.
+
+---
+
+## 🎨 Frontend UI (Vite + React)
+
+The project includes a modern React dashboard located in the `/portfolio-ui` directory.
+
+### Setup & Run UI
+
+1. **Navigate to directory**:
+   ```bash
+   cd portfolio-ui
+   ```
+
+2. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Run Development Server**:
+   ```bash
+   npm run dev
+   ```
+
+The dashboard will be available at `http://localhost:5173`. Make sure the Backend is running on port 8000 for the UI to fetch data correctly.
+

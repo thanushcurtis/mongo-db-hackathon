@@ -5,7 +5,14 @@ Serves the Agentic Portfolio API.
 """
 
 import uuid
+import logging
 from fastapi import FastAPI, HTTPException
+
+# Configure logging to show agent node logs in the terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.database import get_user_profile, get_all_user_holdings
