@@ -45,14 +45,17 @@ async def portfolio(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return profile
 
+class AnalyzeRequest(BaseModel):
+    chat_message: str = ""
+
 @app.post("/analyze/{user_id}")
-async def analyze(user_id: str):
+async def analyze(user_id: str, request: AnalyzeRequest = AnalyzeRequest()):
     """Run full portfolio analysis graph."""
     if not get_user_profile(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     
     config = {"configurable": {"thread_id": f"req_{uuid.uuid4().hex[:6]}"}}
-    initial_state = {"user_id": user_id, "chat_message": ""}
+    initial_state = {"user_id": user_id, "chat_message": request.chat_message}
     result = graph.invoke(initial_state, config=config)
     return {"report": result.get("final_report", "Error")}
 

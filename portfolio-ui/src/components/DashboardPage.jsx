@@ -25,7 +25,7 @@ const DashboardPage = ({ userId }) => {
         const t3 = setTimeout(() => { setPipelinePhase(4); setStep('Synthesizer: Generating Markdown report...'); }, 14000);
 
         try {
-            const data = await runAnalysis(userId);
+            const data = await runAnalysis(userId, chatMessage);
             clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
             setReport(data.report);
         } catch (err) {

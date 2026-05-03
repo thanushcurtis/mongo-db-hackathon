@@ -15,12 +15,12 @@ db = client["personal_portfolio"]
 def seed():
     users = [
         {
-            "user_id": "thanushcurtis",
-            "name": "Thanush Curtis",
+            "user_id": "hardcoded_user_1 ",
+            "name": "Test User",
             "risk_tolerance": "moderate",
             "portfolio": [
-                {"ticker": "AAPL", "shares": 15, "buy_price": 178.50},
-                {"ticker": "NVDA", "shares": 10, "buy_price": 450.00},
+                {"ticker": "AAPL", "shares": 10, "buy_price": 178.50},
+                {"ticker": "TSLA", "shares": 10, "buy_price": 450.00},
                 {"ticker": "MSFT", "shares": 5, "buy_price": 380.00}
             ]
         }

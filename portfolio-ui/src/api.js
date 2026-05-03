@@ -11,8 +11,12 @@ export async function fetchPortfolio(userId) {
     return res.json();
 }
 
-export async function runAnalysis(userId) {
-    const res = await fetch(`${BASE}/analyze/${userId}`, { method: 'POST' });
+export async function runAnalysis(userId, chatMessage = '') {
+    const res = await fetch(`${BASE}/analyze/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_message: chatMessage }),
+    });
     if (!res.ok) throw new Error(`Analysis failed: ${res.status}`);
     return res.json();
 }
