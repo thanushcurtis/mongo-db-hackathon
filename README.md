@@ -1,6 +1,5 @@
 An agentic AI system built with **LangGraph**, **MongoDB Atlas**, and **Cohere** to provide personalized financial analysis and portfolio recommendations.
 
-🚀 **Live Demo**: [http://ec2-13-221-122-150.compute-1.amazonaws.com](http://ec2-13-221-122-150.compute-1.amazonaws.com)
 
 ## 🚀 Overview
 
