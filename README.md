@@ -10,6 +10,14 @@ This backend system leverages a multi-node agent graph to:
 4. **Trend Node**: Aggregate technical signals and platform-wide trending stocks.
 5. **Synthesis Node**: Generate concise answers or full personalized Markdown reports using Cohere's Command-R+.
 
+## 📸 Screenshots
+
+<div align="center">
+  <img src="Portfolio-chat.png" width="800" alt="Portfolio Chat">
+  <br>
+  <img src="Live-Stocks.png" width="800" alt="Live Stocks">
+</div>
+
 ## 🛠 Tech Stack
 
 - **Framework**: FastAPI
